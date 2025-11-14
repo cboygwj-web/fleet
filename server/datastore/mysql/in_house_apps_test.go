@@ -61,13 +61,26 @@ func testInHouseAppsCrud(t *testing.T, ds *Datastore) {
 	payload := fleet.UploadSoftwareInstallerPayload{
 		TeamID:           &team.ID,
 		UserID:           user1.ID,
-		Title:            "foo",
+		Title:            "foo", // Not used in code, needed for test
 		Filename:         "foo.ipa",
 		BundleIdentifier: "com.foo",
 		StorageID:        "testingtesting123",
 		Platform:         "ios",
 		Extension:        "ipa",
 		Version:          "1.2.3",
+	}
+
+	payloadV2 := fleet.UploadSoftwareInstallerPayload{
+		TeamID:           &team.ID,
+		UserID:           user1.ID,
+		Title:            "foo_v3_different_name", // Not used in code, needed for test
+		Filename:         "foo_v3_different_name.ipa",
+		BundleIdentifier: "com.foo",
+		StorageID:        "testingtesting456",
+		Platform:         "ios",
+		Extension:        "ipa",
+		Version:          "3.0.0",
+		ValidatedLabels:  &fleet.LabelIdentsWithScope{},
 	}
 
 	// -------------------------
@@ -102,6 +115,13 @@ func testInHouseAppsCrud(t *testing.T, ds *Datastore) {
 		return nil
 	})
 
+	// Try to upload in house app again, expect duplicate error
+	_, _, err = ds.MatchOrCreateSoftwareInstaller(ctx, &payload)
+	require.ErrorContains(t, err, fmt.Sprintf(`In-house app %q already exists`, payload.Filename))
+	_, _, err = ds.MatchOrCreateSoftwareInstaller(ctx, &payloadV2)
+	require.ErrorContains(t, err, fmt.Sprintf(`In-house app %q already exists`, payloadV2.Filename))
+
+	// Get new in house app
 	installer, err := ds.GetInHouseAppMetadataByTeamAndTitleID(ctx, &team.ID, titleID)
 	require.NoError(t, err)
 	require.Equal(t, payload.Title, installer.SoftwareTitle)
@@ -229,6 +249,34 @@ func testInHouseAppsCrud(t *testing.T, ds *Datastore) {
 	require.NoError(t, err)
 	require.Equal(t, payload2.Title, installer2.SoftwareTitle)
 	require.True(t, installer2.SelfService)
+
+	// Upload a custom package installer with the same bundle identifier? or title?
+	// Upload a VPP app with the same bundle identifier
+	// Check for duplicates
+	// Check for duplicate cases: only filenames match, only bundle id's match, etc
+	err = ds.DeleteInHouseApp(ctx, installerID)
+	require.NoError(t, err)
+
+	existingInstaller, existingTitle, err := ds.MatchOrCreateSoftwareInstaller(ctx, &fleet.UploadSoftwareInstallerPayload{
+		TeamID:           &team.ID,
+		UserID:           user1.ID,
+		Title:            "bar",
+		InstallScript:    "hello",
+		Filename:         "bar.pkg",
+		Source:           "apps",
+		BundleIdentifier: "com.bar",
+		ValidatedLabels:  &fleet.LabelIdentsWithScope{},
+	})
+	require.NoError(t, err)
+	require.NotZero(t, existingInstaller)
+	require.NotZero(t, existingTitle)
+
+	ExecAdhocSQL(t, ds, func(tx sqlx.ExtContext) error {
+		DumpTable(t, tx, "software_titles", "id", "name", "source", "bundle_identifier", "additional_identifier", "unique_identifier")
+		DumpTable(t, tx, "in_house_apps", "id", "filename", "bundle_identifier", "title_id")
+		DumpTable(t, tx, "software_installers", "id", "filename", "title_id")
+		return nil
+	})
 }
 
 func testInHouseAppsMultipleTeams(t *testing.T, ds *Datastore) {
