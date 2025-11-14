@@ -279,15 +279,32 @@ func testInHouseAppsCrud(t *testing.T, ds *Datastore) {
 	require.ErrorContains(t, err, "existing in-house app")
 
 	// Upload installer when iha with different bundle_id exists
+	// Should succeed
 	pkgPayloadDifferent := pkgPayload
 	pkgPayloadDifferent.BundleIdentifier = "com.different"
 	pkgInstallerID, _, err := ds.MatchOrCreateSoftwareInstaller(ctx, pkgPayload)
 	require.NoError(t, err)
+
 	ds.DeleteSoftwareInstaller(ctx, pkgInstallerID)
 	require.NoError(t, err)
 
-	// Upload a vpp when iha with that bundle_id exists
-	// TODO(JK)
+	// Upload a VPP app when iha with that bundle_id exists
+	// TODO(JK): delete this vpp app (actually no, it shouldn't get added)
+	test.CreateInsertGlobalVPPToken(t, ds)
+	_, err = ds.InsertVPPAppWithTeam(ctx, &fleet.VPPApp{
+		Name: "bar", BundleIdentifier: "com.bar",
+		VPPAppTeam: fleet.VPPAppTeam{VPPAppID: fleet.VPPAppID{AdamID: "adam_vpp_app", Platform: fleet.IOSPlatform}},
+	}, &team.ID)
+
+	ExecAdhocSQL(t, ds, func(tx sqlx.ExtContext) error {
+		DumpTable(t, tx, "software_titles", "id", "name", "source", "bundle_identifier", "additional_identifier", "unique_identifier")
+		DumpTable(t, tx, "in_house_apps", "id", "global_or_team_id", "filename", "bundle_identifier", "title_id", "platform")
+		DumpTable(t, tx, "software_installers", "id", "global_or_team_id", "filename", "title_id")
+		DumpTable(t, tx, "vpp_apps")
+		DumpTable(t, tx, "vpp_apps_teams")
+		return nil
+	})
+	require.ErrorContains(t, err, "in-house app")
 
 	// Remove com.bar in-house apps
 	var ipadInstallerID uint
@@ -300,13 +317,6 @@ func testInHouseAppsCrud(t *testing.T, ds *Datastore) {
 	err = ds.DeleteInHouseApp(ctx, ipadInstallerID)
 	require.NoError(t, err)
 
-	ExecAdhocSQL(t, ds, func(tx sqlx.ExtContext) error {
-		DumpTable(t, tx, "software_titles", "id", "name", "source", "bundle_identifier", "additional_identifier", "unique_identifier")
-		DumpTable(t, tx, "in_house_apps", "id", "filename", "bundle_identifier", "title_id", "platform")
-		DumpTable(t, tx, "software_installers", "id", "filename", "title_id")
-		return nil
-	})
-
 	// Add fresh installer
 	existingInstaller, existingTitle, err := ds.MatchOrCreateSoftwareInstaller(ctx, pkgPayload)
 	require.NoError(t, err)
@@ -314,11 +324,20 @@ func testInHouseAppsCrud(t *testing.T, ds *Datastore) {
 	require.NotZero(t, existingTitle)
 
 	// Try to upload iha, should fail because installer exists
-	// TODO(JK)
+	_, _, err = ds.MatchOrCreateSoftwareInstaller(ctx, &payload2)
+	require.ErrorContains(t, err, "in-house app")
 
 	// Remove installer, add VPP
 	// Try to upload iha, should fail because vpp exists
-	// TODO(JK)
+	ds.DeleteSoftwareInstaller(ctx, existingInstaller)
+	_, err = ds.InsertVPPAppWithTeam(ctx, &fleet.VPPApp{
+		Name: "vppBar", BundleIdentifier: "com.bar",
+		VPPAppTeam: fleet.VPPAppTeam{VPPAppID: fleet.VPPAppID{AdamID: "adam_vpp_app", Platform: fleet.IOSPlatform}},
+	}, &team.ID)
+	require.NoError(t, err)
+
+	_, _, err = ds.MatchOrCreateSoftwareInstaller(ctx, &payload2)
+	require.ErrorContains(t, err, "in-house app")
 }
 
 func testInHouseAppsMultipleTeams(t *testing.T, ds *Datastore) {

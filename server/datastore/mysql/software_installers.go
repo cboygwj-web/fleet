@@ -251,13 +251,19 @@ func (ds *Datastore) MatchOrCreateSoftwareInstaller(ctx context.Context, payload
 	if payload.BundleIdentifier != "" {
 		exists, err := ds.checkInHouseAppExistsForIdentifier(ctx, ds.reader(ctx), payload.TeamID, payload.BundleIdentifier)
 		if err != nil {
-			// quite not good at all
 			return 0, 0, ctxerr.Wrap(ctx, err, "check in-house app exists")
 		}
 		if exists {
-			// not good and stuff
+			teamName := fleet.TeamNameNoTeam
+			if payload.TeamID != nil && *payload.TeamID > 0 {
+				tm, err := ds.TeamWithExtras(ctx, *payload.TeamID)
+				if err != nil {
+					return 0, 0, ctxerr.Wrap(ctx, err, "get team for VPP app conflict error")
+				}
+				teamName = tm.Name
+			}
 			return 0, 0, ctxerr.Wrap(ctx, fleet.ConflictError{
-				Message: fmt.Sprintf(fleet.CantAddSoftwareConflictMessage, payload.Title),
+				Message: fmt.Sprintf(fleet.CantAddSoftwareConflictMessage, payload.Title, teamName),
 			}, "existing in-house app conflicts with software installer")
 		}
 

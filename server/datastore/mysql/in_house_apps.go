@@ -1373,8 +1373,8 @@ func (ds *Datastore) checkInHouseAppExistsForIdentifier(ctx context.Context, q s
 	const stmt = `
 SELECT 1 
 FROM software_titles st
-INNER JOIN in_house_apps iha ON st.id = iha.title_id
-WHERE iha.global_or_team_id = ? AND st.unique_identifier = ?
+INNER JOIN in_house_apps iha ON st.id = iha.title_id AND iha.global_or_team_id = ?
+WHERE st.unique_identifier = ?
 `
 
 	var globalOrTeamID uint
@@ -1387,4 +1387,37 @@ WHERE iha.global_or_team_id = ? AND st.unique_identifier = ?
 		return false, ctxerr.Wrap(ctx, err, "check in-house app exists")
 	}
 	return exists == 1, nil
+}
+
+func (ds *Datastore) checkInHouseAppExistsForAdamID(ctx context.Context, q sqlx.QueryerContext, teamID *uint, adamID string) (exists bool, title string, err error) {
+	// This could be removed by refactoring checkConflictingSoftwareInstallerForVPPApp
+	// to use the softwareType struct
+	const stmt = `
+SELECT st.name
+FROM software_titles st
+INNER JOIN in_house_apps iha ON iha.title_id = st.id AND 
+	iha.global_or_team_id = ?
+INNER JOIN vpp_apps va ON va.title_id = st.id
+INNER JOIN vpp_apps_teams vat ON vat.adam_id = va.adam_id AND
+	vat.global_or_team_id = ?
+WHERE
+	va.adam_id = ?
+`
+
+	var globalOrTeamID uint
+	if teamID != nil {
+		globalOrTeamID = *teamID
+	}
+
+	// Scan to see if either ios/ipados IHAs exist
+	err = sqlx.SelectContext(ctx, q, &title, stmt, globalOrTeamID, globalOrTeamID, adamID)
+	fmt.Println("Team ID: ", globalOrTeamID)
+	fmt.Println("adamID: ", adamID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, "", nil
+		}
+		return false, "", ctxerr.Wrap(ctx, err, "checking for conflicting in-house app for vpp app")
+	}
+	return true, title, nil
 }
