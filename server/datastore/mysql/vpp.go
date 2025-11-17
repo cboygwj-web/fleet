@@ -365,7 +365,6 @@ func (ds *Datastore) getVPPAppTeamCategoryIDs(ctx context.Context, vppAppTeamID 
 }
 
 func (ds *Datastore) SetTeamVPPApps(ctx context.Context, teamID *uint, appFleets []fleet.VPPAppTeam) error {
-	fmt.Println("222222222222222 SetTeamVPPApps -----------------")
 	existingApps, err := ds.GetAssignedVPPApps(ctx, teamID)
 	if err != nil {
 		return ctxerr.Wrap(ctx, err, "SetTeamVPPApps getting list of existing apps")
@@ -448,7 +447,7 @@ func (ds *Datastore) SetTeamVPPApps(ctx context.Context, teamID *uint, appFleets
 	if len(toAddApps) > 0 {
 		teamName = fleet.TeamNameNoTeam
 		if teamID != nil && *teamID > 0 {
-			tm, err := ds.TeamWithExtras(ctx, *teamID)
+			tm, err := ds.TeamLite(ctx, *teamID)
 			if err != nil {
 				return ctxerr.Wrap(ctx, err, "get team for VPP app conflict error")
 			}
@@ -578,7 +577,6 @@ func (ds *Datastore) InsertVPPAppWithTeam(ctx context.Context, app *fleet.VPPApp
 		teamName = tm.Name
 	}
 
-	fmt.Println("11111111111")
 	err = ds.withRetryTxx(ctx, func(tx sqlx.ExtContext) error {
 		titleID, err := ds.getOrInsertSoftwareTitleForVPPApp(ctx, tx, app)
 		if err != nil {
@@ -2184,18 +2182,15 @@ func (ds *Datastore) checkSoftwareConflictsForVPPApp(ctx context.Context, tx sql
 	}
 
 	// check if the vpp app conflicts with an existing in-house app
-	fmt.Println("hello????????")
 	if appID.Platform == fleet.IOSPlatform || appID.Platform == fleet.IPadOSPlatform {
-		fmt.Println("---------------")
 		exists, conflictingTitle, err := ds.checkInHouseAppExistsForAdamID(ctx, ds.reader(ctx), teamID, appID.AdamID)
-		fmt.Println("exists: ", exists)
 		if err != nil {
 			return ctxerr.Wrap(ctx, err, "check if in-house app exists")
 		}
 		if exists {
 			return ctxerr.Wrap(ctx, fleet.ConflictError{
-				Message: fmt.Sprintf(fleet.CantAddSoftwareConflictMessage, conflictingTitle, teamName), // TODO(JK): fill in message
-			}, "existing in-house app conflicts with software installer")
+				Message: fmt.Sprintf(fleet.CantAddSoftwareConflictMessage, conflictingTitle, teamName),
+			}, "vpp app conflicts with existing in-house app")
 		}
 	}
 	return nil
